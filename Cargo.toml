@@ -1,0 +1,36 @@
+[package]
+name = "crabpack"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = []
+python = ["pyo3"]
+
+[dependencies]
+anyhow = "1.0"
+thiserror = "1.0"
+walkdir = "2.5"
+tar = "0.4"
+flate2 = "1.0"
+bzip2 = "0.4"
+zip = { version = "0.6", default-features = false, features = ["deflate"] }
+tempfile = "3.10"
+regex = "1.10"
+once_cell = "1.19"
+indicatif = "0.17"
+clap = { version = "4.5", features = ["derive"] }
+pathdiff = "0.2"
+globset = "0.4"
+
+[dependencies.pyo3]
+version = "0.21"
+optional = true
+features = ["extension-module", "abi3-py37"]
+
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.1"
