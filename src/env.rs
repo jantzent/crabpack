@@ -773,18 +773,18 @@ fn check_python_prefix(
 
     match context.kind {
         EnvKind::Venv => {
-            let original = context.orig_prefix.join(BIN_DIR).join("python");
-            let mut new_target = normalized.join(BIN_DIR);
-            if cfg!(windows) {
-                new_target.push("python");
+            let python_component: PathBuf = if cfg!(windows) {
+                PathBuf::from("python")
             } else {
-                new_target.push(
-                    context
-                        .py_lib
-                        .file_name()
-                        .unwrap_or_else(|| std::ffi::OsStr::new("python")),
-                );
-            }
+                context
+                    .py_lib
+                    .file_name()
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| PathBuf::from("python"))
+            };
+            let original = context.orig_prefix.join(BIN_DIR).join(&python_component);
+            let mut new_target = normalized.join(BIN_DIR);
+            new_target.push(&python_component);
             rewrites.push((
                 path_to_string(&original).into_owned(),
                 path_to_string(&new_target).into_owned(),
