@@ -425,6 +425,7 @@ impl PigzWriter {
 
         let output = file.try_clone()?;
         let mut command = Command::new("pigz");
+        command.arg("-n");
         command.arg("-c");
         command.arg(format!("-{level}"));
         if let Some(count) = threads {
