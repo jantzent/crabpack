@@ -1,6 +1,7 @@
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Component, Path};
+use std::process::{Child, ChildStdin, Command, Stdio};
 
 use flate2::write::GzEncoder;
 use flate2::Compression as GzCompression;
@@ -27,6 +28,35 @@ pub struct ArchiveOptions {
     pub compress_level: u32,
     pub zip_symlinks: bool,
     pub zip_64: bool,
+    pub compressor: Compressor,
+    pub pigz_threads: Option<usize>,
+}
+
+/// Available compression backends for gzip archives.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Compressor {
+    Auto,
+    Gzip,
+    Pigz,
+}
+
+impl Default for Compressor {
+    fn default() -> Self {
+        Compressor::Auto
+    }
+}
+
+impl Compressor {
+    pub fn parse(value: &str) -> Result<Self> {
+        match value {
+            "auto" => Ok(Compressor::Auto),
+            "gzip" => Ok(Compressor::Gzip),
+            "pigz" => Ok(Compressor::Pigz),
+            other => Err(CrabpackError::user(format!(
+                "Unknown compressor '{other}'. Expected one of: auto, gzip, pigz"
+            ))),
+        }
+    }
 }
 
 pub struct Archive {
@@ -45,7 +75,7 @@ impl Archive {
                 ArchiveInner::Zip(ZipArchive::new(file, options.zip_symlinks, options.zip_64)?)
             }
             _ => {
-                let writer = TarWriter::new(file, format, options.compress_level)?;
+                let writer = TarWriter::new(file, format, options)?;
                 let mut builder = tar::Builder::new(writer);
                 builder.follow_symlinks(false);
                 ArchiveInner::Tar(builder)
@@ -303,17 +333,16 @@ fn zip_name(path: &Path) -> Result<String> {
 enum TarWriter {
     Plain(File),
     Gzip(GzEncoder<File>),
+    Pigz(PigzWriter),
     Bzip2(bzip2::write::BzEncoder<File>),
 }
 
 impl TarWriter {
-    fn new(file: File, format: ArchiveFormat, level: u32) -> Result<Self> {
-        let level = level.min(9);
+    fn new(file: File, format: ArchiveFormat, options: ArchiveOptions) -> Result<Self> {
+        let level = options.compress_level.min(9);
         Ok(match format {
             ArchiveFormat::Tar => TarWriter::Plain(file),
-            ArchiveFormat::TarGz => {
-                TarWriter::Gzip(GzEncoder::new(file, GzCompression::new(level)))
-            }
+            ArchiveFormat::TarGz => TarWriter::create_gzip_writer(file, level, options)?,
             ArchiveFormat::TarBz2 => TarWriter::Bzip2(bzip2::write::BzEncoder::new(
                 file,
                 bzip2::Compression::new(level),
@@ -322,10 +351,37 @@ impl TarWriter {
         })
     }
 
+    fn create_gzip_writer(file: File, level: u32, options: ArchiveOptions) -> Result<Self> {
+        let compressor = match options.compressor {
+            Compressor::Auto => {
+                if pigz_available() {
+                    Compressor::Pigz
+                } else {
+                    Compressor::Gzip
+                }
+            }
+            other => other,
+        };
+
+        match compressor {
+            Compressor::Gzip => Ok(TarWriter::Gzip(GzEncoder::new(
+                file,
+                GzCompression::new(level),
+            ))),
+            Compressor::Pigz => Ok(TarWriter::Pigz(PigzWriter::new(
+                file,
+                level,
+                options.pigz_threads,
+            )?)),
+            Compressor::Auto => unreachable!(),
+        }
+    }
+
     fn finish(self) -> io::Result<File> {
         match self {
             TarWriter::Plain(file) => Ok(file),
             TarWriter::Gzip(writer) => writer.finish(),
+            TarWriter::Pigz(writer) => writer.finish(),
             TarWriter::Bzip2(writer) => writer.finish(),
         }
     }
@@ -336,6 +392,7 @@ impl Write for TarWriter {
         match self {
             TarWriter::Plain(file) => file.write(buf),
             TarWriter::Gzip(writer) => writer.write(buf),
+            TarWriter::Pigz(writer) => writer.write(buf),
             TarWriter::Bzip2(writer) => writer.write(buf),
         }
     }
@@ -344,9 +401,100 @@ impl Write for TarWriter {
         match self {
             TarWriter::Plain(file) => file.flush(),
             TarWriter::Gzip(writer) => writer.flush(),
+            TarWriter::Pigz(writer) => writer.flush(),
             TarWriter::Bzip2(writer) => writer.flush(),
         }
     }
+}
+
+struct PigzWriter {
+    stdin: ChildStdin,
+    child: Child,
+    output: File,
+}
+
+impl PigzWriter {
+    fn new(file: File, level: u32, threads: Option<usize>) -> Result<Self> {
+        if let Some(count) = threads {
+            if count == 0 {
+                return Err(CrabpackError::user(
+                    "pigz-threads must be greater than zero",
+                ));
+            }
+        }
+
+        let output = file.try_clone()?;
+        let mut command = Command::new("pigz");
+        command.arg("-n");
+        command.arg("-c");
+        command.arg(format!("-{level}"));
+        if let Some(count) = threads {
+            command.arg("-p");
+            command.arg(count.to_string());
+        }
+
+        let mut child = command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::from(file))
+            .spawn()
+            .map_err(|err| {
+                if err.kind() == io::ErrorKind::NotFound {
+                    CrabpackError::user(
+                        "pigz compressor requested but the 'pigz' binary was not found in PATH",
+                    )
+                } else {
+                    err.into()
+                }
+            })?;
+
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| CrabpackError::user("failed to open stdin for pigz process"))?;
+
+        Ok(PigzWriter {
+            stdin,
+            child,
+            output,
+        })
+    }
+
+    fn finish(self) -> io::Result<File> {
+        let mut stdin = self.stdin;
+        stdin.flush()?;
+        drop(stdin);
+
+        let mut child = self.child;
+        let status = child.wait()?;
+        if status.success() {
+            Ok(self.output)
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("pigz exited with status {status}"),
+            ))
+        }
+    }
+}
+
+impl Write for PigzWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.stdin.write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.stdin.flush()
+    }
+}
+
+fn pigz_available() -> bool {
+    Command::new("pigz")
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
 }
 
 fn unix_mode(metadata: &fs::Metadata, is_dir: bool) -> Option<u32> {
