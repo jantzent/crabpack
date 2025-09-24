@@ -234,6 +234,7 @@ dependencies = [
  "pathdiff",
  "predicates",
  "pyo3",
+ "pyo3-build-config",
  "regex",
  "tar",
  "tempfile",
