@@ -11,7 +11,7 @@ use once_cell::sync::Lazy;
 use regex::bytes::Regex;
 use tempfile::NamedTempFile;
 
-use crate::archive::{Archive, ArchiveFormat, ArchiveOptions, BIN_DIR};
+use crate::archive::{Archive, ArchiveFormat, ArchiveOptions, Compressor, BIN_DIR};
 use crate::error::{CrabpackError, Result};
 
 /// Representation of a file (or directory) to be added to the archive.
@@ -121,6 +121,20 @@ impl Env {
         let (output_path, archive_format) =
             resolve_output_and_format(self, options.output.clone(), options.format)?;
 
+        if options.compressor == Compressor::Pigz && archive_format != ArchiveFormat::TarGz {
+            return Err(CrabpackError::user(
+                "pigz compression can only be used with the tar.gz format",
+            ));
+        }
+
+        if let Some(count) = options.pigz_threads {
+            if count == 0 {
+                return Err(CrabpackError::user(
+                    "pigz-threads must be greater than zero",
+                ));
+            }
+        }
+
         if output_path.exists() && !options.force {
             return Err(CrabpackError::user(format!(
                 "File {:?} already exists",
@@ -141,6 +155,8 @@ impl Env {
             compress_level: options.compress_level,
             zip_symlinks: options.zip_symlinks,
             zip_64: options.zip_64,
+            compressor: options.compressor,
+            pigz_threads: options.pigz_threads,
         };
         let mut archive = Archive::new(file, archive_format, archive_options)?;
 
@@ -205,6 +221,8 @@ pub struct PackOptions {
     pub compress_level: u32,
     pub zip_symlinks: bool,
     pub zip_64: bool,
+    pub compressor: Compressor,
+    pub pigz_threads: Option<usize>,
     pub filters: Vec<PackFilter>,
 }
 

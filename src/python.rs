@@ -4,7 +4,7 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
 use crate::error::CrabpackError;
-use crate::{pack as pack_env, FilterKind, PackFilter, PackFormat, PackOptions};
+use crate::{pack as pack_env, Compressor, FilterKind, PackFilter, PackFormat, PackOptions};
 
 #[pyfunction]
 #[pyo3(
@@ -18,7 +18,9 @@ use crate::{pack as pack_env, FilterKind, PackFilter, PackFormat, PackOptions};
         compress_level=4,
         zip_symlinks=false,
         zip_64=true,
-        filters=None
+        filters=None,
+        compressor=None,
+        pigz_threads=None
     )
 )]
 fn pack(
@@ -32,6 +34,8 @@ fn pack(
     zip_symlinks: bool,
     zip_64: bool,
     filters: Option<Vec<(String, String)>>,
+    compressor: Option<&str>,
+    pigz_threads: Option<usize>,
 ) -> PyResult<String> {
     let mut options = PackOptions::default();
     options.prefix = prefix.map(PathBuf::from);
@@ -47,6 +51,10 @@ fn pack(
     options.compress_level = compress_level;
     options.zip_symlinks = zip_symlinks;
     options.zip_64 = zip_64;
+    if let Some(comp) = compressor {
+        options.compressor = Compressor::parse(comp).map_err(to_pyerr)?;
+    }
+    options.pigz_threads = pigz_threads;
 
     if let Some(filter_list) = filters {
         let mut parsed = Vec::with_capacity(filter_list.len());

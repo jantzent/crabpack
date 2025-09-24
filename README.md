@@ -29,6 +29,11 @@ Options:
                                 packaged environment.
       --compress-level <INT>    Compression level to use (0-9). Ignored for zip
                                 archives. [default: 4]
+      --compressor <COMPRESSOR>
+                                Compressor to use for .tar.gz archives.
+                                [default: auto] [possible values: auto, gzip,
+                                pigz]
+      --pigz-threads <INT>      Number of threads to use with pigz compression.
       --zip-symlinks            Store symbolic links in the zip archive instead
                                 of the linked files.
       --no-zip-64               Disable ZIP64 extensions.

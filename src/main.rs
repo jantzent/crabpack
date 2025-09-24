@@ -4,7 +4,7 @@ use std::process;
 use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
 
 use crabpack::error::CrabpackError;
-use crabpack::{pack, FilterKind, PackFilter, PackFormat, PackOptions};
+use crabpack::{pack, Compressor, FilterKind, PackFilter, PackFormat, PackOptions};
 
 fn main() {
     if let Err(err) = run() {
@@ -33,6 +33,10 @@ fn run() -> Result<(), CrabpackError> {
     options.verbose = !matches.get_flag("quiet");
     options.force = matches.get_flag("force");
     options.compress_level = *matches.get_one::<u32>("compress-level").unwrap();
+    options.compressor = Compressor::parse(matches.get_one::<String>("compressor").unwrap())?;
+    options.pigz_threads = matches
+        .get_one::<u32>("pigz-threads")
+        .map(|value| *value as usize);
     options.zip_symlinks = matches.get_flag("zip-symlinks");
     options.zip_64 = !matches.get_flag("no-zip-64");
     options.filters = parse_filters(&matches);
@@ -77,6 +81,20 @@ fn build_cli() -> Command {
                 .value_parser(value_parser!(u32).range(0..=9))
                 .default_value("4")
                 .help("Compression level to use (0-9). Ignored for zip archives."),
+        )
+        .arg(
+            Arg::new("compressor")
+                .long("compressor")
+                .default_value("auto")
+                .value_parser(["auto", "gzip", "pigz"])
+                .help("Compressor to use for .tar.gz archives."),
+        )
+        .arg(
+            Arg::new("pigz-threads")
+                .long("pigz-threads")
+                .value_name("INT")
+                .value_parser(value_parser!(u32).range(1..))
+                .help("Number of threads to use with pigz compression."),
         )
         .arg(
             Arg::new("zip-symlinks")
