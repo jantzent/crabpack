@@ -54,22 +54,34 @@ crabpack --prefix /opt/envs/my-env --output my-env.tar.gz --format tar.gz \
   --exclude "*.pyc" --force
 ```
 
-## Python bindings
+## Python package
 
-The optional Python bindings expose an API compatible with `venv_pack.pack`. To
-build them, enable the `python` feature:
+`crabpack` can also be distributed as a Python package backed by the Rust
+implementation. The project uses [maturin](https://www.maturin.rs/) as its build
+backend and publishes a module compatible with `venv_pack.pack`.
+
+To work with the Python bindings locally, create a virtual environment and
+install the extension in development mode:
 
 ```bash
-maturin develop --features python
-# or
-cargo build --release --features python
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+maturin develop --release -F python
 ```
 
-Once built, the module can be imported from Python:
+After installation, the package can be imported from Python:
 
 ```python
 import crabpack
+
 crabpack.pack(prefix="/opt/envs/my-env", output="my-env.tar.gz", format="tar.gz")
+```
+
+To build distributable wheels and an sdist for publishing, run:
+
+```bash
+maturin build --release -F python
 ```
 
 ## Development
@@ -78,6 +90,7 @@ crabpack.pack(prefix="/opt/envs/my-env", output="my-env.tar.gz", format="tar.gz"
 cargo fmt
 cargo check
 cargo test
+pytest -q
 ```
 
 The repository includes integration assets under `assets/scripts` that are
