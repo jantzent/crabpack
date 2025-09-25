@@ -523,3 +523,69 @@ fn current_timestamp() -> u64 {
         .unwrap_or_default()
         .as_secs()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::tempfile;
+
+    #[test]
+    fn compressor_parse_accepts_known_values() {
+        assert_eq!(Compressor::parse("auto").unwrap(), Compressor::Auto);
+        assert_eq!(Compressor::parse("gzip").unwrap(), Compressor::Gzip);
+        assert_eq!(Compressor::parse("pigz").unwrap(), Compressor::Pigz);
+    }
+
+    #[test]
+    fn compressor_parse_rejects_unknown_values() {
+        let err = Compressor::parse("brotli").unwrap_err();
+        let message = format!("{err}");
+        assert!(message.contains("Unknown compressor"));
+    }
+
+    #[test]
+    fn zip_name_normalizes_components() {
+        let path = Path::new("foo").join("bar").join("baz.txt");
+        let normalized = zip_name(&path).unwrap();
+        assert_eq!(normalized, "foo/bar/baz.txt");
+    }
+
+    #[test]
+    fn zip_name_rejects_invalid_components() {
+        let path = Path::new("foo").join(Component::RootDir.as_os_str());
+        let err = zip_name(&path).unwrap_err();
+        let message = format!("{err}");
+        assert!(message.contains("unsupported path component"));
+    }
+
+    #[test]
+    fn tar_writer_finishes_to_underlying_file() {
+        let file = tempfile().unwrap();
+        let mut writer = TarWriter::new(
+            file,
+            ArchiveFormat::Tar,
+            ArchiveOptions {
+                compress_level: 0,
+                zip_symlinks: false,
+                zip_64: false,
+                compressor: Compressor::Auto,
+                pigz_threads: None,
+            },
+        )
+        .unwrap();
+
+        writer.write_all(b"hello world").unwrap();
+        let file = writer.finish().unwrap();
+        let metadata = file.metadata().unwrap();
+        assert_eq!(metadata.len(), b"hello world".len() as u64);
+    }
+
+    #[test]
+    fn unix_mode_returns_some_value() {
+        let file = tempfile().unwrap();
+        let metadata = file.metadata().unwrap();
+        let mode = unix_mode(&metadata, false);
+        assert!(mode.is_some());
+    }
+}
