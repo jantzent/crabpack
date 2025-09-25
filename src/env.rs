@@ -244,7 +244,7 @@ pub enum FilterKind {
     Exclude,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PackFormat {
     Infer,
     Zip,
@@ -836,3 +836,180 @@ fn path_to_string(path: &Path) -> Cow<'_, str> {
 }
 
 static ACTIVATE_SCRIPT: &[u8] = include_bytes!("../assets/scripts/common/activate");
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    fn dummy_context(prefix: &Path, kind: EnvKind) -> Context {
+        Context {
+            prefix: prefix.to_path_buf(),
+            orig_prefix: prefix.to_path_buf(),
+            py_lib: PathBuf::from("lib/python3.11"),
+            py_include: PathBuf::from("include/python3.11"),
+            kind,
+        }
+    }
+
+    fn create_env(prefix_name: &str) -> Env {
+        let tmp = tempdir().unwrap();
+        let prefix = tmp.path().join(prefix_name);
+        fs::create_dir_all(&prefix).unwrap();
+        Env {
+            context: dummy_context(&prefix, EnvKind::Venv),
+            files: Vec::new(),
+            excluded: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn pack_format_parse_recognizes_aliases() {
+        assert_eq!(PackFormat::parse("infer").unwrap(), PackFormat::Infer);
+        assert_eq!(PackFormat::parse("zip").unwrap(), PackFormat::Zip);
+        assert_eq!(PackFormat::parse("tar.gz").unwrap(), PackFormat::TarGz);
+        assert_eq!(PackFormat::parse("tgz").unwrap(), PackFormat::TarGz);
+        assert_eq!(PackFormat::parse("tar.bz2").unwrap(), PackFormat::TarBz2);
+        assert_eq!(PackFormat::parse("tbz2").unwrap(), PackFormat::TarBz2);
+        assert_eq!(PackFormat::parse("tar").unwrap(), PackFormat::Tar);
+    }
+
+    #[test]
+    fn pack_format_parse_rejects_unknown_values() {
+        let err = PackFormat::parse("rar").unwrap_err();
+        assert!(format!("{err}").contains("Unknown format"));
+    }
+
+    #[test]
+    fn resolve_output_defaults_to_tar_gz_when_inferred() {
+        let env = create_env("dummy");
+        let (output, format) = resolve_output_and_format(&env, None, PackFormat::Infer).unwrap();
+        assert_eq!(format, ArchiveFormat::TarGz);
+        assert_eq!(output.file_name().unwrap(), "dummy.tar.gz");
+    }
+
+    #[test]
+    fn resolve_output_respects_explicit_extension() {
+        let env = create_env("dummy");
+        let output_path = PathBuf::from("custom.tgz");
+        let (output, format) =
+            resolve_output_and_format(&env, Some(output_path.clone()), PackFormat::Infer).unwrap();
+        assert_eq!(format, ArchiveFormat::TarGz);
+        assert_eq!(output, output_path);
+    }
+
+    #[test]
+    fn infer_format_from_output_handles_unknown_extension() {
+        let err = infer_format_from_output(PathBuf::from("archive.bin")).unwrap_err();
+        assert!(format!("{err}").contains("Unknown file extension"));
+    }
+
+    #[test]
+    fn is_in_bin_dir_detects_first_component() {
+        let path = Path::new(BIN_DIR).join("python");
+        assert!(is_in_bin_dir(&path));
+
+        let other = Path::new("lib").join(BIN_DIR).join("python");
+        assert!(!is_in_bin_dir(&other));
+    }
+
+    #[test]
+    fn rewrite_shebang_rewrites_matching_prefix() {
+        let tmp = tempdir().unwrap();
+        let prefix = tmp.path().join("venv");
+        fs::create_dir_all(&prefix).unwrap();
+        let shebang = format!("#!{}/bin/python -O\n", prefix.display());
+        let (rewritten, changed) = rewrite_shebang(shebang.as_bytes(), &prefix);
+        assert!(changed);
+        let expected = format!("#!/usr/bin/env python -O\n");
+        assert_eq!(String::from_utf8(rewritten).unwrap(), expected);
+    }
+
+    #[test]
+    fn rewrite_shebang_ignores_non_matching_prefix() {
+        let tmp = tempdir().unwrap();
+        let prefix = tmp.path().join("venv");
+        fs::create_dir_all(&prefix).unwrap();
+        let shebang = "#!/opt/python/bin/python\n";
+        let (rewritten, changed) = rewrite_shebang(shebang.as_bytes(), &prefix);
+        assert!(!changed);
+        assert_eq!(String::from_utf8(rewritten).unwrap(), shebang);
+    }
+
+    #[test]
+    fn rewrite_shebang_with_multiple_prefix_matches_is_ignored() {
+        let tmp = tempdir().unwrap();
+        let prefix = tmp.path().join("venv");
+        fs::create_dir_all(&prefix).unwrap();
+        let repeated = format!("#!{} {}/bin/python\n", prefix.display(), prefix.display());
+        let (_, changed) = rewrite_shebang(repeated.as_bytes(), &prefix);
+        assert!(!changed);
+    }
+
+    #[test]
+    fn check_python_prefix_requires_absolute_paths() {
+        let tmp = tempdir().unwrap();
+        let prefix = tmp.path().join("venv");
+        fs::create_dir_all(&prefix).unwrap();
+        let context = dummy_context(&prefix, EnvKind::Venv);
+        let err = check_python_prefix(Some(PathBuf::from("relative")), &context).unwrap_err();
+        assert!(format!("{err}").contains("must be an absolute path"));
+    }
+
+    #[test]
+    fn check_python_prefix_rewrites_for_venv() {
+        let tmp = tempdir().unwrap();
+        let original = tmp.path().join("orig");
+        let prefix = tmp.path().join("venv");
+        fs::create_dir_all(&prefix).unwrap();
+        fs::create_dir_all(&original).unwrap();
+
+        let mut context = dummy_context(&prefix, EnvKind::Venv);
+        context.orig_prefix = original.clone();
+
+        let new_prefix = tmp.path().join("newprefix");
+        let (actual_prefix, rewrites) =
+            check_python_prefix(Some(new_prefix.clone()), &context).unwrap();
+
+        assert_eq!(actual_prefix.unwrap(), new_prefix);
+        assert_eq!(rewrites.len(), 1);
+
+        let (old, new) = &rewrites[0];
+        let expected_old = original
+            .join(BIN_DIR)
+            .join(context.py_lib.file_name().unwrap());
+        let expected_new = new_prefix
+            .join(BIN_DIR)
+            .join(context.py_lib.file_name().unwrap());
+        assert_eq!(old, &path_to_string(&expected_old).into_owned());
+        assert_eq!(new, &path_to_string(&expected_new).into_owned());
+    }
+
+    #[test]
+    fn check_python_prefix_rewrites_for_virtualenv() {
+        let tmp = tempdir().unwrap();
+        let original = tmp.path().join("orig");
+        let prefix = tmp.path().join("env");
+        fs::create_dir_all(&prefix).unwrap();
+        fs::create_dir_all(&original).unwrap();
+
+        let mut context = dummy_context(&prefix, EnvKind::Virtualenv);
+        context.orig_prefix = original.clone();
+
+        let new_prefix = tmp.path().join("newenv");
+        let (actual_prefix, rewrites) =
+            check_python_prefix(Some(new_prefix.clone()), &context).unwrap();
+
+        assert_eq!(actual_prefix.unwrap(), new_prefix);
+        assert_eq!(rewrites.len(), 2);
+
+        let expected_lib_old = ensure_trailing_sep(&original.join(&context.py_lib));
+        let expected_lib_new = ensure_trailing_sep(&new_prefix.join(&context.py_lib));
+        let expected_inc_old = path_to_string(&original.join(&context.py_include)).into_owned();
+        let expected_inc_new = path_to_string(&new_prefix.join(&context.py_include)).into_owned();
+
+        assert!(rewrites.contains(&(expected_lib_old.clone(), expected_lib_new.clone())));
+        assert!(rewrites.contains(&(expected_inc_old.clone(), expected_inc_new.clone())));
+    }
+}
