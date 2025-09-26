@@ -50,7 +50,7 @@ jobs:
       - name: Install maturin
         run: pip install maturin
       - name: Build sdist
-        run: maturin sdist --release -F python --out dist
+        run: maturin sdist --out dist
       - name: Upload sdist artifact
         uses: actions/upload-artifact@v4
         with:
