@@ -1,4 +1,4 @@
-name: CI
+name: Python CI
 
 on:
   push:
@@ -6,29 +6,13 @@ on:
   pull_request:
 
 jobs:
-  rust:
-    name: Rust checks
-    runs-on: ubuntu-latest
-    env:
-      CARGO_TERM_COLOR: always
-      PYO3_PYTHON: python3
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-      - name: Run cargo fmt
-        run: cargo fmt --all -- --check
-      - name: Run cargo clippy
-        run: cargo clippy --all-targets --all-features
-      - name: Run cargo tests
-        run: cargo test --all-features --all-targets
-
   python:
-    name: Python packaging
+    name: Python packaging checks (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
     env:
       PYO3_PYTHON: python3
     steps:
@@ -37,7 +21,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
       - name: Install build dependencies
         shell: bash
         run: |
