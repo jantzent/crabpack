@@ -1,5 +1,7 @@
 # crabpack
 
+**This package was written 100% by AI.**
+
 `crabpack` is a Rust-native, high-performance reimplementation of the
 [`venv-pack`](https://github.com/jcrist/venv-pack) tool for packaging Python
 virtual environments. It provides a drop-in compatible command line interface
