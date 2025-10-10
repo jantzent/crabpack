@@ -39,6 +39,8 @@ Options:
       --zip-symlinks            Store symbolic links in the zip archive instead
                                 of the linked files.
       --no-zip-64               Disable ZIP64 extensions.
+      --skip-editable           Continue packing even if editable packages are
+                               detected.
       --exclude <PATTERN>       Exclude files matching this pattern (can be
                                 repeated).
       --include <PATTERN>       Re-add excluded files matching this pattern.
@@ -55,6 +57,14 @@ Example:
 crabpack --prefix /opt/envs/my-env --output my-env.tar.gz --format tar.gz \
   --exclude "*.pyc" --force
 ```
+
+### Editable packages
+
+`crabpack` aborts by default when it detects editable installs (packages living
+outside of the environment prefix and linked in via `.pth` files). Use the
+`--skip-editable` flag to continue packing despite their presence. When this
+option is enabled, `crabpack` reports the offending paths on stderr and omits
+their external locations from the generated archive.
 
 ## Python package
 
