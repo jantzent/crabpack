@@ -36,7 +36,11 @@ pub struct Env {
 }
 
 impl Env {
-    pub fn new(prefix: Option<PathBuf>, skip_editable: bool) -> Result<Self> {
+    pub fn new(prefix: Option<PathBuf>) -> Result<Self> {
+        Self::new_with_skip_editable(prefix, false)
+    }
+
+    pub fn new_with_skip_editable(prefix: Option<PathBuf>, skip_editable: bool) -> Result<Self> {
         let context = check_prefix(prefix)?;
         check_no_editable_packages(&context, skip_editable)?;
         let files = collect_environment_files(&context)?;
@@ -199,8 +203,12 @@ impl Env {
 }
 
 /// Create an archive directly from configuration options.
-pub fn pack(mut options: PackOptions) -> Result<PathBuf> {
-    let mut env = Env::new(options.prefix.take(), options.skip_editable)?;
+pub fn pack(options: PackOptions) -> Result<PathBuf> {
+    pack_with_skip_editable(options, false)
+}
+
+pub fn pack_with_skip_editable(mut options: PackOptions, skip_editable: bool) -> Result<PathBuf> {
+    let mut env = Env::new_with_skip_editable(options.prefix.take(), skip_editable)?;
     for filter in &options.filters {
         match filter.kind {
             FilterKind::Exclude => env = env.exclude(&filter.pattern)?,
@@ -224,7 +232,6 @@ pub struct PackOptions {
     pub compressor: Compressor,
     pub pigz_threads: Option<usize>,
     pub filters: Vec<PackFilter>,
-    pub skip_editable: bool,
 }
 
 impl Default for PackFormat {

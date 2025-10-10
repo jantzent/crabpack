@@ -4,7 +4,9 @@ use std::process;
 use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
 
 use crabpack::error::CrabpackError;
-use crabpack::{pack, Compressor, FilterKind, PackFilter, PackFormat, PackOptions};
+use crabpack::{
+    pack_with_skip_editable, Compressor, FilterKind, PackFilter, PackFormat, PackOptions,
+};
 
 fn main() {
     if let Err(err) = run() {
@@ -40,9 +42,9 @@ fn run() -> Result<(), CrabpackError> {
     options.zip_symlinks = matches.get_flag("zip-symlinks");
     options.zip_64 = !matches.get_flag("no-zip-64");
     options.filters = parse_filters(&matches);
-    options.skip_editable = matches.get_flag("skip-editable");
+    let skip_editable = matches.get_flag("skip-editable");
 
-    pack(options)?;
+    pack_with_skip_editable(options, skip_editable)?;
     Ok(())
 }
 

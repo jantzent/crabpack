@@ -4,7 +4,10 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
 use crate::error::CrabpackError;
-use crate::{pack as pack_env, Compressor, FilterKind, PackFilter, PackFormat, PackOptions};
+use crate::{
+    pack_with_skip_editable as pack_env_with_skip, Compressor, FilterKind, PackFilter, PackFormat,
+    PackOptions,
+};
 
 #[pyfunction]
 #[pyo3(
@@ -75,8 +78,7 @@ fn pack(
         options.filters = parsed;
     }
 
-    options.skip_editable = skip_editable;
-    let result = pack_env(options).map_err(to_pyerr)?;
+    let result = pack_env_with_skip(options, skip_editable).map_err(to_pyerr)?;
     Ok(result.to_string_lossy().into_owned())
 }
 
