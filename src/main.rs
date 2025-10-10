@@ -40,6 +40,7 @@ fn run() -> Result<(), CrabpackError> {
     options.zip_symlinks = matches.get_flag("zip-symlinks");
     options.zip_64 = !matches.get_flag("no-zip-64");
     options.filters = parse_filters(&matches);
+    options.skip_editable = matches.get_flag("skip-editable");
 
     pack(options)?;
     Ok(())
@@ -107,6 +108,12 @@ fn build_cli() -> Command {
                 .long("no-zip-64")
                 .action(ArgAction::SetTrue)
                 .help("Disable ZIP64 extensions."),
+        )
+        .arg(
+            Arg::new("skip-editable")
+                .long("skip-editable")
+                .action(ArgAction::SetTrue)
+                .help("Continue packing even if editable packages are detected."),
         )
         .arg(
             Arg::new("exclude")

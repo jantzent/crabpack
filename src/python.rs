@@ -20,7 +20,8 @@ use crate::{pack as pack_env, Compressor, FilterKind, PackFilter, PackFormat, Pa
         zip_64=true,
         filters=None,
         compressor=None,
-        pigz_threads=None
+        pigz_threads=None,
+        skip_editable=false
     )
 )]
 fn pack(
@@ -36,6 +37,7 @@ fn pack(
     filters: Option<Vec<(String, String)>>,
     compressor: Option<&str>,
     pigz_threads: Option<usize>,
+    skip_editable: bool,
 ) -> PyResult<String> {
     let mut options = PackOptions::default();
     options.prefix = prefix.map(PathBuf::from);
@@ -73,6 +75,7 @@ fn pack(
         options.filters = parsed;
     }
 
+    options.skip_editable = skip_editable;
     let result = pack_env(options).map_err(to_pyerr)?;
     Ok(result.to_string_lossy().into_owned())
 }

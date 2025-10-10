@@ -36,9 +36,9 @@ pub struct Env {
 }
 
 impl Env {
-    pub fn new(prefix: Option<PathBuf>) -> Result<Self> {
+    pub fn new(prefix: Option<PathBuf>, skip_editable: bool) -> Result<Self> {
         let context = check_prefix(prefix)?;
-        check_no_editable_packages(&context)?;
+        check_no_editable_packages(&context, skip_editable)?;
         let files = collect_environment_files(&context)?;
         Ok(Env {
             context,
@@ -200,7 +200,7 @@ impl Env {
 
 /// Create an archive directly from configuration options.
 pub fn pack(mut options: PackOptions) -> Result<PathBuf> {
-    let mut env = Env::new(options.prefix.take())?;
+    let mut env = Env::new(options.prefix.take(), options.skip_editable)?;
     for filter in &options.filters {
         match filter.kind {
             FilterKind::Exclude => env = env.exclude(&filter.pattern)?,
@@ -224,6 +224,7 @@ pub struct PackOptions {
     pub compressor: Compressor,
     pub pigz_threads: Option<usize>,
     pub filters: Vec<PackFilter>,
+    pub skip_editable: bool,
 }
 
 impl Default for PackFormat {
@@ -560,7 +561,7 @@ fn find_python_lib_include(prefix: &Path) -> Result<(PathBuf, PathBuf)> {
     ))
 }
 
-fn check_no_editable_packages(context: &Context) -> Result<()> {
+fn check_no_editable_packages(context: &Context, skip_editable: bool) -> Result<()> {
     let site_packages = context.py_lib_path().join("site-packages");
     if !site_packages.exists() {
         return Ok(());
@@ -600,17 +601,26 @@ fn check_no_editable_packages(context: &Context) -> Result<()> {
         }
     }
 
-    if editable.is_empty() {
+    let mut list: Vec<_> = editable.into_iter().collect();
+    if list.is_empty() {
         return Ok(());
     }
 
-    let mut list: Vec<_> = editable.into_iter().collect();
     list.sort();
     let details = list
-        .into_iter()
+        .iter()
         .map(|item| format!("- {item}"))
         .collect::<Vec<_>>()
         .join("\n");
+
+    if skip_editable {
+        eprintln!(
+            "Editable packages found outside the environment will be skipped:\n\n{}",
+            details
+        );
+        return Ok(());
+    }
+
     Err(CrabpackError::user(format!(
         "Cannot pack an environment with editable packages\ninstalled (e.g. from `python setup.py develop` or\n `pip install -e`). Editable packages found:\n\n{}",
         details
@@ -1011,5 +1021,24 @@ mod tests {
 
         assert!(rewrites.contains(&(expected_lib_old.clone(), expected_lib_new.clone())));
         assert!(rewrites.contains(&(expected_inc_old.clone(), expected_inc_new.clone())));
+    }
+
+    #[test]
+    fn check_no_editable_packages_can_be_skipped() {
+        let tmp = tempdir().unwrap();
+        let prefix = tmp.path().join("venv");
+        let site_packages = prefix.join("lib/python3.11").join("site-packages");
+        fs::create_dir_all(&site_packages).unwrap();
+        let editable = site_packages.join("editable.pth");
+        fs::write(&editable, "/external/package\n").unwrap();
+
+        let context = dummy_context(&prefix, EnvKind::Venv);
+
+        let err = check_no_editable_packages(&context, false).unwrap_err();
+        let message = format!("{err}");
+        assert!(message.contains("Editable packages found"));
+        assert!(message.contains("/external/package"));
+
+        assert!(check_no_editable_packages(&context, true).is_ok());
     }
 }
