@@ -4,7 +4,10 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
 use crate::error::CrabpackError;
-use crate::{pack as pack_env, Compressor, FilterKind, PackFilter, PackFormat, PackOptions};
+use crate::{
+    pack_with_skip_editable as pack_env_with_skip, Compressor, FilterKind, PackFilter, PackFormat,
+    PackOptions,
+};
 
 #[pyfunction]
 #[pyo3(
@@ -20,7 +23,8 @@ use crate::{pack as pack_env, Compressor, FilterKind, PackFilter, PackFormat, Pa
         zip_64=true,
         filters=None,
         compressor=None,
-        pigz_threads=None
+        pigz_threads=None,
+        skip_editable=false
     )
 )]
 fn pack(
@@ -36,6 +40,7 @@ fn pack(
     filters: Option<Vec<(String, String)>>,
     compressor: Option<&str>,
     pigz_threads: Option<usize>,
+    skip_editable: bool,
 ) -> PyResult<String> {
     let mut options = PackOptions::default();
     options.prefix = prefix.map(PathBuf::from);
@@ -73,7 +78,7 @@ fn pack(
         options.filters = parsed;
     }
 
-    let result = pack_env(options).map_err(to_pyerr)?;
+    let result = pack_env_with_skip(options, skip_editable).map_err(to_pyerr)?;
     Ok(result.to_string_lossy().into_owned())
 }
 
