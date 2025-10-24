@@ -153,7 +153,8 @@ impl Env {
             );
         }
 
-        let tmp = NamedTempFile::new()?;
+        let tmp_dir = temp_dir_for_output(&output_path)?;
+        let tmp = NamedTempFile::new_in(tmp_dir)?;
         let file = tmp.reopen()?;
         let archive_options = ArchiveOptions {
             compress_level: options.compress_level,
@@ -413,6 +414,14 @@ fn resolve_output_and_format(
             output.unwrap_or_else(|| PathBuf::from(format!("{}.tar", env.name()))),
             ArchiveFormat::Tar,
         )),
+    }
+}
+
+fn temp_dir_for_output(output_path: &Path) -> Result<PathBuf> {
+    if let Some(parent) = output_path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        Ok(parent.to_path_buf())
+    } else {
+        Ok(env::current_dir()?)
     }
 }
 
@@ -914,6 +923,21 @@ mod tests {
             resolve_output_and_format(&env, Some(output_path.clone()), PackFormat::Infer).unwrap();
         assert_eq!(format, ArchiveFormat::TarGz);
         assert_eq!(output, output_path);
+    }
+
+    #[test]
+    fn temp_dir_for_output_defaults_to_current_directory() {
+        let cwd = env::current_dir().unwrap();
+        let output = PathBuf::from("archive.tar.gz");
+        let tmp_dir = temp_dir_for_output(&output).unwrap();
+        assert_eq!(tmp_dir, cwd);
+    }
+
+    #[test]
+    fn temp_dir_for_output_uses_parent_directory_when_available() {
+        let output = PathBuf::from("dist/archive.tar.gz");
+        let tmp_dir = temp_dir_for_output(&output).unwrap();
+        assert_eq!(tmp_dir, PathBuf::from("dist"));
     }
 
     #[test]
