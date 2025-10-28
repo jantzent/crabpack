@@ -3,9 +3,19 @@ from __future__ import annotations
 
 from importlib import metadata as _metadata
 
-from .crabpack import pack
+from .progress import format_time, progressbar
 
-__all__ = ["pack"]
+try:  # pragma: no cover - depends on the Rust extension being built
+    from .crabpack import pack
+except ImportError:  # pragma: no cover - exercised indirectly in tests
+    def pack(*_args, **_kwargs):
+        raise ImportError(
+            "The crabpack native module is not available. "
+            "Build the project first (see README)."
+        )
+
+
+__all__ = ["pack", "progressbar", "format_time"]
 
 
 def __getattr__(name: str):
